@@ -1,0 +1,19 @@
+[project]
+name = "lithosphere"
+version = "0.1.0"
+description = "Project Lithosphere: option screening, optimisation and invalidation engine"
+requires-python = ">=3.11"
+dependencies = ["numpy", "pandas", "httpx", "fastapi", "uvicorn[standard]", "websockets"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["lithosphere"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
