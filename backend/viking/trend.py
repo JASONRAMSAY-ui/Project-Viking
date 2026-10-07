@@ -1,4 +1,7 @@
-"""Phase 1 signal: a recent break of an established DOWNtrend makes the short put safer.
+"""Phase 1 candidate signal: a recent break of an established DOWNtrend.
+
+STATUS: UNVALIDATED. The 11-symbol backtest below looked promising, but a 191-symbol test with same-date
+controls (reports/setup_research.md) found no edge. Treat `signal` in the live view as an information flag.
 
 Backtested on ~10y of daily data (scripts/sweep_trend_break.py): put strikes at ~0.20 delta were
 touched far less often after such a break than on drift-matched control days, in both the

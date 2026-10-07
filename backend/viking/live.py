@@ -444,4 +444,5 @@ class LiveRuntime:
                 "trend": {k: v for k, v in self.trend.items()},
                 "positions": pos, "log": [],
                 "notes": ["Screens equities/ETFs and futures (set VIKING_WATCHLIST / VIKING_FUTURES). "
-                          "Futures use a 24h session clock and contract multipliers. Closing is disabled."]}
+                          "Futures use a 24h session clock and contract multipliers. Closing is disabled. "
+                          "The phase 1 trend-break flag is UNVALIDATED on the broader universe."]}
