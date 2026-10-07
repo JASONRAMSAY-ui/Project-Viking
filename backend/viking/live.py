@@ -15,7 +15,7 @@ import httpx
 from . import dxlink
 from . import indicators as ind
 from .config import BrokerConfig
-from .invalidation import NY, InvalidationEngine, Position
+from .invalidation import NY, InvalidationEngine, Pivot, Position
 from .optimizer import OptionQuote, rank_setups
 from .screening import run_screen
 from .tastytrade import TastytradeBroker
@@ -109,6 +109,7 @@ class LiveRuntime:
                 if p.symbol in self.bars:
                     h = ind.volume_profile_hvn(self.bars[p.symbol], self.engine.cfg.hvn_lookback)
                     p.hvn_low, p.hvn_high = h["low"], h["high"]
+                    p.pivots = self._pivots(p, self.bars[p.symbol])
             self._refresh_candidates()
             self.hist_error = ""
         except Exception as e:
@@ -170,6 +171,50 @@ class LiveRuntime:
                 "strikes": [f"{'-' if d < 0 else '+'}{q.strike:g}{q.right}" for q, d in x.legs],
                 "components": {k: round(v, 3) for k, v in x.components.items()}} for x in ranked]
 
+    @staticmethod
+    def _pivots(p: Position, b) -> list[Pivot]:
+        """Support under a short put (anchored VWAP, S1 pivot), resistance over a short call (R1 pivot)."""
+        last = b.iloc[-1]
+        pp = (last["high"] + last["low"] + last["close"]) / 3
+        out = []
+        if p.short_put is not None:
+            out.append(Pivot("Anchored VWAP", float(ind.anchored_vwap(b, max(len(b) - 45, 0))), "support"))
+            out.append(Pivot("S1 pivot", float(2 * pp - last["high"]), "support"))
+        if p.short_call is not None:
+            out.append(Pivot("R1 pivot", float(2 * pp - last["low"]), "resistance"))
+        return out
+
+    def _evaluate(self) -> None:
+        for p in self.positions.values():
+            spot = self.spot.get(p.symbol)
+            if spot is None:
+                continue
+            trig = self.engine.on_tick(p, spot, self.clock)
+            b = self.bars.get(p.symbol)
+            c = self.clock.astimezone(NY)
+            if b is not None and c.hour == 15 and c.minute >= 59:
+                trig += self.engine.on_daily_close(p, spot, float(ind.atr(b).iloc[-1]))
+            self.flags[p.id] = [t.__dict__ for t in trig]
+
+    def dry_run_close(self, pos_id: str) -> dict:
+        """Validate a closing order with tastytrade's dry-run endpoint. Places nothing."""
+        p = self.positions.get(pos_id)
+        if not p:
+            return {"ok": False, "error": "unknown position"}
+        exp = pos_id.split("-")[1]
+        sym = lambda r, k: f"{p.symbol:<6}{exp}{r}{int(round(k * 1000)):08d}"
+        legs = [{"instrument-type": "Equity Option", "symbol": sym(r, k), "quantity": p.qty,
+                 "action": "Buy to Close"} for r, k in (("P", p.short_put), ("C", p.short_call)) if k]
+        order = {"time-in-force": "Day", "order-type": "Limit", "price": 0.05, "price-effect": "Debit",
+                 "legs": legs}
+        b = TastytradeBroker(self.cfg.__class__(**{**self.cfg.__dict__, "account_number": self._acct}))
+        b.http = self.b.http
+        b._token, b._expires = self.b._token, self.b._expires
+        try:
+            return {"ok": True, "result": b.dry_run(order)}
+        except Exception as e:
+            return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
     def _near_money_spread(self, sym: str, spot: float) -> float:
         """Worst bid/ask width ($/share) on near-the-money options ~30-45 DTE (inf if unknown)."""
         try:
@@ -211,6 +256,7 @@ class LiveRuntime:
                     self.ivr = {m["symbol"]: float(m["tw-implied-volatility-index-rank"]) * 100 for m in mm}
                 self._refresh_history(unds)
                 self._refresh_deltas()
+                self._evaluate()
                 self.error = self.hist_error
         except Exception as e:  # keep the console alive; surface the error
             self.error = f"{type(e).__name__}: {e}"
@@ -236,7 +282,11 @@ class LiveRuntime:
                 "spot": round(self.spot.get(p.symbol, 0.0), 2),
                 "short_put": p.short_put, "short_call": p.short_call,
                 "put_delta": round(p.short_put_delta, 3), "call_delta": round(p.short_call_delta, 3),
-                "hvn": [round(p.hvn_low, 2), round(p.hvn_high, 2)], "pivots": [], "triggers": [], "exit": None,
+                "hvn": [round(p.hvn_low, 2), round(p.hvn_high, 2)],
+                "pivots": [{"name": v.name, "level": round(v.level, 2), "side": v.side,
+                            "breach_min": round(self.engine.breach_minutes(p.id, v, self.clock), 1),
+                            "breached": v.breached(self.spot.get(p.symbol, 0.0))} for v in p.pivots],
+                "triggers": self.flags.get(p.id, []), "exit": None,
                 "ivr": round(self.ivr.get(p.symbol, 0.0), 1)} for p in self.positions.values()]
             scr = self._screen
             gk = ({"front": round(self.term[0], 2), "back": round(self.term[1], 2),
@@ -257,4 +307,4 @@ class LiveRuntime:
                                      key=lambda c: (not c["screen_passed"], -c["osqs"]))[:12],
                 "positions": pos, "log": [],
                 "notes": ["Live screen and gatekeeper use real history. Candidates are ranked from real option chains and flagged if the "
-                          "symbol fails the screen. Pivot rules not wired; closing is disabled."]}
+                          "symbol fails the screen. Pivot/HVN rules run on real history; closing is disabled."]}

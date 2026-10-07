@@ -53,6 +53,12 @@ def create_app(runtime: "DemoRuntime | LiveRuntime | None" = None, tick_seconds:
             raise HTTPException(404, "unknown position")
         return rt.close_position(pos_id)
 
+    @app.post("/api/positions/{pos_id}/dry-run-close")
+    def dry_close(pos_id: str):
+        if not hasattr(rt, "dry_run_close"):
+            raise HTTPException(400, "dry-run is only available in live mode")
+        return rt.dry_run_close(pos_id)  # validate-only; never places an order
+
     @app.post("/api/demo/spot")
     def demo_spot(body: Spot):
         if body.symbol not in rt.spot:

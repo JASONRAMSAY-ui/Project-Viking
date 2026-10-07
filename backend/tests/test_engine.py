@@ -210,3 +210,16 @@ def test_group_positions_condor():
     ps = group_positions([it("SPY   261009P00700000", "1", "Long"), it("SPY   261009P00710000", "1", "Short"),
                           it("SPY   261009C00800000", "1", "Short"), it("SPY   261009C00810000", "1", "Long")])
     assert len(ps) == 1 and ps[0].kind == "iron_condor" and (ps[0].short_put, ps[0].short_call) == (710, 800)
+
+
+def test_live_pivots_and_evaluate():
+    import pandas as pd
+    from viking.invalidation import Position
+    from viking.live import LiveRuntime
+    b = pd.DataFrame({"open": [100.0] * 60, "high": [102.0] * 60, "low": [98.0] * 60,
+                      "close": [100.0] * 60, "volume": [1e6] * 60})
+    p = Position("SPY-261009", "SPY", "iron_condor", 90, 110, 1, 95, 105, [])
+    pv = LiveRuntime._pivots(p, b)
+    assert {v.name for v in pv} == {"Anchored VWAP", "S1 pivot", "R1 pivot"}
+    assert next(v for v in pv if v.name == "R1 pivot").level == 102.0  # 2*pp - low, pp=100
+    assert next(v for v in pv if v.name == "S1 pivot").level == 98.0
