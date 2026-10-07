@@ -16,6 +16,7 @@ from . import dxlink
 from . import indicators as ind
 from .config import BrokerConfig
 from .invalidation import NY, InvalidationEngine, Position
+from .optimizer import OptionQuote, rank_setups
 from .screening import run_screen
 from .tastytrade import TastytradeBroker
 
@@ -81,6 +82,7 @@ class LiveRuntime:
         self.term: tuple[float, float] | None = None
         self.nm_spread: dict[str, float] = {}
         self._screen = None
+        self.cands: dict[str, list] = {}
         self._hist_at = 0.0
         self.hist_error = ""
 
@@ -107,9 +109,66 @@ class LiveRuntime:
                 if p.symbol in self.bars:
                     h = ind.volume_profile_hvn(self.bars[p.symbol], self.engine.cfg.hvn_lookback)
                     p.hvn_low, p.hvn_high = h["low"], h["high"]
+            self._refresh_candidates()
             self.hist_error = ""
         except Exception as e:
             self.hist_error = f"history: {type(e).__name__}: {e}"
+
+    def _live_chain(self, sym: str, spot: float):
+        """OTM option quotes (~30-45 DTE) with real Greeks. Returns (chain, put_iv_25d, call_iv_25d, dte)."""
+        exps = self._get(f"/option-chains/{sym}/nested")["items"][0]["expirations"]
+        ex = min((e for e in exps if e["days-to-expiration"] >= 30), key=lambda e: e["days-to-expiration"])
+        want = []
+        for k in ex["strikes"]:
+            K = float(k["strike-price"])
+            if K < spot * 0.85 or K > spot * 1.15:
+                continue
+            if K < spot:
+                want.append((k["put"], "P", K))
+            if K > spot:
+                want.append((k["call"], "C", K))
+        meta = {w[0]: w for w in want}
+        chain, iv = [], {"P": [], "C": []}
+        for i in range(0, len(want), 80):
+            for sym_, q in self._quotes("equity-option", [w[0] for w in want[i:i + 80]]).items():
+                _, right, K = meta[sym_]
+                try:
+                    bid, ask, d, th = float(q["bid"]), float(q["ask"]), float(q["delta"]), float(q["theta"])
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if ask <= 0 or ask < bid:
+                    continue
+                chain.append(OptionQuote(K, right, bid, ask, d, th))
+                if q.get("volatility") is not None:
+                    iv[right].append((abs(abs(d) - 0.25), float(q["volatility"])))
+        pick = lambda r, dflt: min(iv[r])[1] if iv[r] else dflt
+        return chain, pick("P", 0.22), pick("C", 0.16), ex["days-to-expiration"]
+
+    def _refresh_candidates(self) -> None:
+        syms = sorted(set(WATCHLIST))
+        mm = {m["symbol"]: m for m in self._get("/market-metrics", symbols=",".join(syms))["items"]}
+        passed = {r.symbol for r in self._screen["results"] if r.passed} if self._screen else set()
+        self.cands = {}
+        for sym in syms:
+            if sym not in self.bars:
+                continue
+            m = mm.get(sym, {})
+            ivr = float(m.get("tw-implied-volatility-index-rank") or 0) * 100
+            iv = float(m.get("implied-volatility-index") or 0) or 1.0
+            trend = float(m.get("implied-volatility-index-5-day-change") or 0) / iv / 5
+            try:
+                spot = float(self.bars[sym]["close"].iloc[-1])
+                chain, pv, cv, dte = self._live_chain(sym, spot)
+                step = 5.0 if spot > 300 else 2.0 if spot > 100 else 1.0
+                ranked = rank_setups(chain, pv, cv, ivr, trend, widths=(step, 2 * step))[:4]
+            except Exception:
+                continue
+            self.cands[sym] = [{
+                "symbol": sym, "kind": x.kind, "osqs": round(x.osqs, 3), "pop": round(x.pop, 3),
+                "credit": round(x.credit, 2), "width": x.width, "penalised": x.penalised,
+                "dte": dte, "ivr": round(ivr, 1), "screen_passed": sym in passed,
+                "strikes": [f"{'-' if d < 0 else '+'}{q.strike:g}{q.right}" for q, d in x.legs],
+                "components": {k: round(v, 3) for k, v in x.components.items()}} for x in ranked]
 
     def _near_money_spread(self, sym: str, spot: float) -> float:
         """Worst bid/ask width ($/share) on near-the-money options ~30-45 DTE (inf if unknown)."""
@@ -194,6 +253,8 @@ class LiveRuntime:
                 "auto_close": False, "error": self.error,
                 "gatekeeper": gk,
                 "watchlist": scr["watchlist"] if scr else [], "screen": screen,
-                "candidates": [], "positions": pos, "log": [],
-                "notes": ["Live screen and gatekeeper use real history. Pivot rules and ranked "
-                          "candidates are not wired yet; closing is disabled."]}
+                "candidates": sorted((c for v in self.cands.values() for c in v),
+                                     key=lambda c: (not c["screen_passed"], -c["osqs"]))[:12],
+                "positions": pos, "log": [],
+                "notes": ["Live screen and gatekeeper use real history. Candidates are ranked from real option chains and flagged if the "
+                          "symbol fails the screen. Pivot rules not wired; closing is disabled."]}

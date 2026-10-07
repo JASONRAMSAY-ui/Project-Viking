@@ -32,7 +32,7 @@ spot to the short strike / below support and force backwardation so each rule ca
 | DXLink streaming quotes | Not implemented (live mode polls REST; DXLink used only for daily candles and VIX/VIX3M) |
 | Historical daily bars for screening | Live mode uses real DXLink daily candles (`dxlink.py`); demo mode stays synthetic |
 | Short-leg delta in the demo | Black-Scholes-style approximation, not streamed Greeks |
-| Live read-only runtime (`live.py`: real positions, spot, Greeks, IV rank, VIX via REST) | Implemented, run against the real account; start with `VIKING_DATA=live`. Closing disabled |
+| Live read-only runtime (`live.py`: real positions, Greeks, IV rank, option-chain candidates ranked by OSQS) | Implemented, run against the real account; start with `VIKING_DATA=live`. Closing disabled |
 | Live order guard | `submit` needs `VIKING_LIVE=1` **and** per-order `approve()`; never enabled by default |
 
 Before any live use: wire real data, run on the tastytrade cert sandbox
