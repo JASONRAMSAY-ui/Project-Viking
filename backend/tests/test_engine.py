@@ -52,12 +52,31 @@ def test_breakout_threat_flagged_when_bis_exceeds_upper_bound(monkeypatch):
 
 
 # ---- optimiser
-def test_skew_deltas():
-    d = calculate_skew_adjusted_deltas(0.20, 0.18, 0.16)  # ratio 1.125 -> modifier 0.0625
-    assert d == {"target_put_delta": 0.138, "target_call_delta": 0.263}
-    assert calculate_skew_adjusted_deltas()["target_put_delta"] == 0.12  # spec defaults hit the clamp
-    assert calculate_skew_adjusted_deltas(0.2, 0.16, 0.22)["target_put_delta"] == 0.2  # no negative skew
-    assert calculate_skew_adjusted_deltas(0.2, 1.0, 0.1)["target_call_delta"] == 0.28  # clamped at 0.08
+def test_skew_deltas_are_per_side():
+    # put wing 25% over ATM -> shift 0.125 clamped to 0.08; call wing at ATM -> untouched
+    d = calculate_skew_adjusted_deltas(0.20, 0.25, 0.20, atm_iv=0.20)
+    assert d == {"target_put_delta": 0.12, "target_call_delta": 0.2}
+    assert calculate_skew_adjusted_deltas(0.2, 0.2, 0.2, atm_iv=0.2) == {"target_put_delta": 0.2, "target_call_delta": 0.2}
+    # high put skew must never move the call side
+    base = calculate_skew_adjusted_deltas(0.2, 0.2, 0.2, atm_iv=0.2)["target_call_delta"]
+    assert calculate_skew_adjusted_deltas(0.2, 0.4, 0.2, atm_iv=0.2)["target_call_delta"] == base
+    d = calculate_skew_adjusted_deltas(0.20, 0.22, 0.18, atm_iv=0.20)  # put +10% -> 0.05
+    assert d["target_put_delta"] == 0.15 and d["target_call_delta"] == 0.2
+
+
+def test_ev_component_penalises_tiny_credit():
+    rich = score_setup(_setup(0.18, credit=1.0, width=3.0), ivr=60, premium_trend=-0.02)
+    thin = score_setup(_setup(0.18, credit=0.08, width=3.0), ivr=60, premium_trend=-0.02)
+    assert rich.components["ev_ratio"] > thin.components["ev_ratio"]
+    assert thin.osqs < rich.osqs
+
+
+def test_relative_spread_gate():
+    from viking.config import ScreenConfig
+    bars = synthetic_bars(seed=2, shock_ago=20)
+    cfg = ScreenConfig(spread_relative=True)
+    assert screen_symbol("X", bars, [0.02], cfg).liquidity is True      # 2% of mid
+    assert screen_symbol("X", bars, [0.40], cfg).liquidity is False     # 40% of mid
 
 
 def _setup(short_delta, credit=1.0, width=3.0, pop=None, kind="put_spread"):

@@ -8,12 +8,14 @@ import numpy as np
 from .config import OptimizerConfig
 
 
-def calculate_skew_adjusted_deltas(target_base_delta=0.20, put_iv_25d=0.22, call_iv_25d=0.16) -> dict:
-    """Asymmetric target deltas: heavier put skew pushes the put strike further OTM."""
-    ratio = put_iv_25d / call_iv_25d if call_iv_25d > 0 else 1.0
-    mod = float(np.clip((ratio - 1.0) * 0.5, 0.0, 0.08))
-    return {"target_put_delta": round(target_base_delta - mod, 3),
-            "target_call_delta": round(target_base_delta + mod, 3)}
+def calculate_skew_adjusted_deltas(target_base_delta=0.20, put_iv_25d=0.22, call_iv_25d=0.16,
+                                   atm_iv: float | None = None, max_shift: float = 0.08) -> dict:
+    """Each wing moves further OTM only by its own excess IV over ATM, so heavy put skew widens
+    the put side without touching the call side. atm_iv defaults to the wings' average."""
+    atm = atm_iv if atm_iv else (put_iv_25d + call_iv_25d) / 2
+    shift = lambda iv: float(np.clip((iv / atm - 1.0) * 0.5, 0.0, max_shift)) if atm > 0 else 0.0
+    return {"target_put_delta": round(target_base_delta - shift(put_iv_25d), 3),
+            "target_call_delta": round(target_base_delta - shift(call_iv_25d), 3)}
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,11 @@ def score_setup(setup: Setup, ivr: float, premium_trend: float,
         y_thr = cfg.min_vertical_yield
     yield_s = _threshold_score(yield_ratio, y_thr)
 
+    # Expected value per unit of risk, assuming a breached short loses the full width.
+    risk = max(width_cap - setup.credit, 1e-9)
+    ev_ratio = (setup.pop * setup.credit - (1 - setup.pop) * risk) / risk
+    ev_s = float(np.clip(0.5 + ev_ratio / 0.2, 0, 1))
+
     theta_ratio = setup.theta_per_day / setup.credit if setup.credit > 0 else 0.0
     theta_s = _threshold_score(theta_ratio, cfg.min_theta_ratio)
 
@@ -85,9 +92,9 @@ def score_setup(setup: Setup, ivr: float, premium_trend: float,
     trend_factor = 0.4 if premium_trend >= 0 else float(np.clip(0.6 + min(-premium_trend, 0.05) * 8, 0.6, 1.0))
     vega_s = ivr_s * trend_factor
 
-    setup.components = {"pop": pop_s, "yield": yield_s, "theta": theta_s, "vega": vega_s,
+    setup.components = {"pop": pop_s, "yield": yield_s, "ev": ev_s, "ev_ratio": ev_ratio, "theta": theta_s, "vega": vega_s,
                         "yield_ratio": yield_ratio, "theta_ratio": theta_ratio}
-    raw = pop_s * w["pop"] + yield_s * w["yield"] + theta_s * w["theta"] + vega_s * w["vega"]
+    raw = pop_s * w["pop"] + yield_s * w["yield"] + ev_s * w["ev"] + theta_s * w["theta"] + vega_s * w["vega"]
     setup.penalised = setup.max_short_delta > cfg.max_short_delta or setup.pop < cfg.min_pop
     setup.osqs = raw * (cfg.penalty if setup.penalised else 1.0)
     return setup
@@ -98,9 +105,10 @@ def _nearest(quotes: list[OptionQuote], target_abs_delta: float) -> OptionQuote:
 
 
 def build_candidates(chain: list[OptionQuote], put_iv_25d: float, call_iv_25d: float,
-                     widths=(1.0, 2.0, 5.0), cfg: OptimizerConfig = OptimizerConfig()) -> list[Setup]:
+                     widths=(1.0, 2.0, 5.0), cfg: OptimizerConfig = OptimizerConfig(),
+                     atm_iv: float | None = None) -> list[Setup]:
     """Short strikes land at the skew-adjusted deltas; longs are `width` further OTM."""
-    tgt = calculate_skew_adjusted_deltas(cfg.base_delta, put_iv_25d, call_iv_25d)
+    tgt = calculate_skew_adjusted_deltas(cfg.base_delta, put_iv_25d, call_iv_25d, atm_iv, cfg.max_skew_shift)
     puts = sorted((q for q in chain if q.right == "P"), key=lambda q: q.strike)
     calls = sorted((q for q in chain if q.right == "C"), key=lambda q: q.strike)
     by = {(q.right, q.strike): q for q in chain}
@@ -128,7 +136,8 @@ def build_candidates(chain: list[OptionQuote], put_iv_25d: float, call_iv_25d: f
 
 
 def rank_setups(chain, put_iv_25d, call_iv_25d, ivr, premium_trend,
-                widths=(1.0, 2.0, 5.0), cfg: OptimizerConfig = OptimizerConfig()) -> list[Setup]:
+                widths=(1.0, 2.0, 5.0), cfg: OptimizerConfig = OptimizerConfig(),
+                atm_iv: float | None = None) -> list[Setup]:
     setups = [score_setup(s, ivr, premium_trend, cfg)
-              for s in build_candidates(chain, put_iv_25d, call_iv_25d, widths, cfg)]
+              for s in build_candidates(chain, put_iv_25d, call_iv_25d, widths, cfg, atm_iv)]
     return sorted(setups, key=lambda s: s.osqs, reverse=True)

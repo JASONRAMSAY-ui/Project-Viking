@@ -45,7 +45,8 @@ def screen_symbol(symbol: str, bars: pd.DataFrame, near_money_spreads: list[floa
     if not adv > cfg.min_adv_usd:
         r.reasons.append(f"ADV ${adv:,.0f} <= ${cfg.min_adv_usd:,.0f}")
     if not worst <= cfg.max_option_spread:
-        r.reasons.append(f"near-money option spread {worst:.2f} > {cfg.max_option_spread:.2f}")
+        unit = (lambda v: f"{v:.1%} of mid") if cfg.spread_relative else (lambda v: f"${v:.2f}")
+        r.reasons.append(f"near-money option spread {unit(worst)} > {unit(cfg.max_option_spread)}")
 
     # Filter 2: push-to-pause
     close = bars["close"]

@@ -17,6 +17,7 @@ from . import indicators as ind
 from .config import BrokerConfig
 from .invalidation import NY, InvalidationEngine, Pivot, Position
 from .optimizer import OptionQuote, rank_setups
+from .config import ScreenConfig
 from .screening import run_screen
 from .tastytrade import TastytradeBroker
 
@@ -104,7 +105,7 @@ class LiveRuntime:
             if self.term and self.bars:
                 uni = {s: (b, [self.nm_spread.get(s, float("inf"))]) for s, b in self.bars.items()
                        if s in WATCHLIST}
-                self._screen = run_screen(uni, *self.term)
+                self._screen = run_screen(uni, *self.term, cfg=ScreenConfig(spread_relative=True))
             for p in self.positions.values():
                 if p.symbol in self.bars:
                     h = ind.volume_profile_hvn(self.bars[p.symbol], self.engine.cfg.hvn_lookback)
@@ -129,7 +130,7 @@ class LiveRuntime:
             if K > spot:
                 want.append((k["call"], "C", K))
         meta = {w[0]: w for w in want}
-        chain, iv = [], {"P": [], "C": []}
+        chain, iv, atm = [], {"P": [], "C": []}, []
         for i in range(0, len(want), 80):
             for sym_, q in self._quotes("equity-option", [w[0] for w in want[i:i + 80]]).items():
                 _, right, K = meta[sym_]
@@ -142,8 +143,9 @@ class LiveRuntime:
                 chain.append(OptionQuote(K, right, bid, ask, d, th))
                 if q.get("volatility") is not None:
                     iv[right].append((abs(abs(d) - 0.25), float(q["volatility"])))
+                    atm.append((abs(abs(d) - 0.5), float(q["volatility"])))
         pick = lambda r, dflt: min(iv[r])[1] if iv[r] else dflt
-        return chain, pick("P", 0.22), pick("C", 0.16), ex["days-to-expiration"]
+        return chain, pick("P", 0.22), pick("C", 0.16), ex["days-to-expiration"], (min(atm)[1] if atm else None)
 
     def _refresh_candidates(self) -> None:
         syms = sorted(set(WATCHLIST))
@@ -159,9 +161,9 @@ class LiveRuntime:
             trend = float(m.get("implied-volatility-index-5-day-change") or 0) / iv / 5
             try:
                 spot = float(self.bars[sym]["close"].iloc[-1])
-                chain, pv, cv, dte = self._live_chain(sym, spot)
+                chain, pv, cv, dte, atm_iv = self._live_chain(sym, spot)
                 step = 5.0 if spot > 300 else 2.0 if spot > 100 else 1.0
-                ranked = rank_setups(chain, pv, cv, ivr, trend, widths=(step, 2 * step))[:4]
+                ranked = rank_setups(chain, pv, cv, ivr, trend, widths=(step, 2 * step), atm_iv=atm_iv)[:4]
             except Exception:
                 continue
             self.cands[sym] = [{
@@ -216,7 +218,7 @@ class LiveRuntime:
             return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
     def _near_money_spread(self, sym: str, spot: float) -> float:
-        """Worst bid/ask width ($/share) on near-the-money options ~30-45 DTE (inf if unknown)."""
+        """Worst bid/ask width as a fraction of mid on near-the-money options ~30-45 DTE (inf if unknown)."""
         try:
             exps = self._get(f"/option-chains/{sym}/nested")["items"][0]["expirations"]
             ex = min((e for e in exps if e["days-to-expiration"] >= 30),
@@ -224,7 +226,7 @@ class LiveRuntime:
             ks = sorted(ex["strikes"], key=lambda k: abs(float(k["strike-price"]) - spot))[:2]
             syms = [k[r] for k in ks for r in ("call", "put")]
             q = self._quotes("equity-option", syms)
-            return max(float(v["ask"]) - float(v["bid"]) for v in q.values())
+            return max((float(v["ask"]) - float(v["bid"])) / max(float(v["mid"]), 0.01) for v in q.values())
         except Exception:
             return float("inf")
 

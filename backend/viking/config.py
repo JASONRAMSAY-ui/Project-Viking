@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 class ScreenConfig:
     min_adv_usd: float = 20_000_000.0
     adv_window: int = 30
-    max_option_spread: float = 0.05  # dollars per share on near-the-money legs
+    max_option_spread: float = 0.05  # near-the-money bid/ask width: dollars/share, or fraction of mid if spread_relative
+    spread_relative: bool = False
     hv_short: int = 20
     hv_long: int = 90
     hv_explosion_ratio: float = 1.5
@@ -33,8 +34,9 @@ class OptimizerConfig:
     min_condor_yield: float = 0.33
     min_theta_ratio: float = 0.015
     min_ivr: float = 45.0
+    max_skew_shift: float = 0.08  # cap on per-side delta shift from skew
     weights: dict = field(
-        default_factory=lambda: {"pop": 0.40, "yield": 0.30, "theta": 0.15, "vega": 0.15}
+        default_factory=lambda: {"pop": 0.30, "yield": 0.25, "ev": 0.15, "theta": 0.15, "vega": 0.15}
     )
 
 
