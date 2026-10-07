@@ -79,7 +79,8 @@ def simulate_trade(bars: pd.DataFrame, t: int, sig: float, cfg: SimConfig, rule:
         S, left = c[t + i], h - i
         if left == 0:
             val = max(K1 - S, 0) - max(K2 - S, 0)
-            return {"ror": (credit - val - cost) / risk, "days": i, "exit": "expiry"}
+            return {"ror": (credit - val - cost) / risk, "days": i, "exit": "expiry", "credit_w": credit / width,
+                    "pnl_w": (credit - val - cost) / width}
         iv = iv0 * (S0 / S) ** cfg.vol_on_drop
         val = put_price(S, K1, left / 252, iv) - put_price(S, K2, left / 252, iv)
         pnl = credit - val
@@ -93,7 +94,8 @@ def simulate_trade(bars: pd.DataFrame, t: int, sig: float, cfg: SimConfig, rule:
         elif rule.exit_dte is not None and left <= rule.exit_dte:
             why = "time"
         if why:
-            return {"ror": (pnl - cost) / risk, "days": i, "exit": why}
+            return {"ror": (pnl - cost) / risk, "days": i, "exit": why, "credit_w": credit / width,
+                    "pnl_w": (pnl - cost) / width}
     return None
 
 
