@@ -23,7 +23,7 @@ class Term(BaseModel):
 
 
 def create_app(runtime: DemoRuntime | None = None, tick_seconds: float = 1.0) -> FastAPI:
-    rt = runtime or DemoRuntime(auto_close=os.getenv("LITHOSPHERE_AUTOCLOSE") == "1")
+    rt = runtime or DemoRuntime(auto_close=os.getenv("VIKING_AUTOCLOSE") == "1")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -36,7 +36,7 @@ def create_app(runtime: DemoRuntime | None = None, tick_seconds: float = 1.0) ->
         if task:
             task.cancel()
 
-    app = FastAPI(title="Project Lithosphere", lifespan=lifespan)
+    app = FastAPI(title="Project Viking", lifespan=lifespan)
     app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"],
                        allow_methods=["*"], allow_headers=["*"])
 

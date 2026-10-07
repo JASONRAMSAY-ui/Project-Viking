@@ -4,15 +4,15 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 import pytest
 
-from lithosphere import indicators as ind
-from lithosphere.chaser import execute_chaser_exit
-from lithosphere.config import ChaserConfig, ScreenConfig
-from lithosphere.invalidation import InvalidationEngine, Pivot, Position, market_minutes_between
-from lithosphere.optimizer import (calculate_skew_adjusted_deltas, rank_setups, OptionQuote,
+from viking import indicators as ind
+from viking.chaser import execute_chaser_exit
+from viking.config import ChaserConfig, ScreenConfig
+from viking.invalidation import InvalidationEngine, Pivot, Position, market_minutes_between
+from viking.optimizer import (calculate_skew_adjusted_deltas, rank_setups, OptionQuote,
                                    Setup, score_setup)
-from lithosphere.screening import TermStructure, run_screen, screen_symbol, term_structure
-from lithosphere.sim import synthetic_bars, synthetic_chain
-from lithosphere.tastytrade import SimBroker
+from viking.screening import TermStructure, run_screen, screen_symbol, term_structure
+from viking.sim import synthetic_bars, synthetic_chain
+from viking.tastytrade import SimBroker
 
 NY = ZoneInfo("America/New_York")
 

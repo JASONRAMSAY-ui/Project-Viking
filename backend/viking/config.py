@@ -64,7 +64,7 @@ class BrokerConfig:
     base_url: str = field(
         default_factory=lambda: os.getenv("TT_BASE_URL", "https://api.cert.tastyworks.com")
     )
-    live_orders: bool = field(default_factory=lambda: os.getenv("LITHOSPHERE_LIVE") == "1")
+    live_orders: bool = field(default_factory=lambda: os.getenv("VIKING_LIVE") == "1")
     client_secret: str = field(default_factory=lambda: os.getenv("TT_CLIENT_SECRET", ""))
     refresh_token: str = field(default_factory=lambda: os.getenv("TT_REFRESH_TOKEN", ""))
     account_number: str = field(default_factory=lambda: os.getenv("TT_ACCOUNT", ""))

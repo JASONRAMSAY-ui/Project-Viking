@@ -6,8 +6,8 @@ Env:   TT_CLIENT_SECRET, TT_REFRESH_TOKEN, TT_ACCOUNT (optional: defaults to fir
        TT_BASE_URL (default: cert sandbox; set https://api.tastyworks.com for the real account)."""
 import sys
 
-from lithosphere.config import BrokerConfig
-from lithosphere.tastytrade import TastytradeBroker
+from viking.config import BrokerConfig
+from viking.tastytrade import TastytradeBroker
 
 cfg = BrokerConfig()
 symbol = sys.argv[1] if len(sys.argv) > 1 else "SPY"
@@ -19,7 +19,7 @@ print(f"host: {cfg.base_url}")
 b = TastytradeBroker.__new__(TastytradeBroker)  # allow empty TT_ACCOUNT; we discover it below
 import httpx, time
 b.cfg, b._token, b._expires = cfg, "", 0.0
-b.http = httpx.Client(base_url=cfg.base_url, timeout=10.0, headers={"User-Agent": "lithosphere/0.1"})
+b.http = httpx.Client(base_url=cfg.base_url, timeout=10.0, headers={"User-Agent": "viking/0.1"})
 
 
 def get(path, **params):

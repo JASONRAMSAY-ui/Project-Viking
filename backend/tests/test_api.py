@@ -2,11 +2,11 @@ import time
 
 from fastapi.testclient import TestClient
 
-from lithosphere.chaser import ChaserConfig
-from lithosphere.runtime import DemoRuntime
-from lithosphere.server import create_app
-from lithosphere.sim import synthetic_bars
-from lithosphere.screening import screen_symbol
+from viking.chaser import ChaserConfig
+from viking.runtime import DemoRuntime
+from viking.server import create_app
+from viking.sim import synthetic_bars
+from viking.screening import screen_symbol
 
 
 def client(**kw):
@@ -58,6 +58,6 @@ def test_auto_close_is_off_by_default():
 
 
 def test_short_delta_goes_past_half_when_itm():
-    from lithosphere.runtime import short_delta
+    from viking.runtime import short_delta
     assert short_delta(100, 95, "P") < 0.5 < short_delta(94, 95, "P")
     assert short_delta(100, 105, "C") < 0.5 < short_delta(106, 105, "C")

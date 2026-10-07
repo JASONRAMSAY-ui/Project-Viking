@@ -21,7 +21,7 @@ class TastytradeBroker:
             raise ValueError("TT_CLIENT_SECRET, TT_REFRESH_TOKEN and TT_ACCOUNT are required")
         self.cfg = cfg
         self.http = client or httpx.Client(base_url=cfg.base_url, timeout=10.0,
-                                           headers={"User-Agent": "lithosphere/0.1"})
+                                           headers={"User-Agent": "viking/0.1"})
         self._token, self._expires = "", 0.0
 
     def _auth(self) -> dict:

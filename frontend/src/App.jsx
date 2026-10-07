@@ -242,7 +242,7 @@ export default function App() {
       <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Layers size={18} className="text-sky-400" />
-          <h1 className="text-sm font-bold uppercase tracking-[0.25em]">Lithosphere</h1>
+          <h1 className="text-sm font-bold uppercase tracking-[0.25em]">Viking</h1>
           <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${demo ? 'bg-amber-500/20 text-amber-300' : s.live_orders ? 'bg-red-600 text-white' : 'bg-zinc-800 text-zinc-300'}`}>
             {demo ? 'DEMO · SYNTHETIC DATA · SIMULATED ORDERS' : s.live_orders ? 'LIVE ORDERS' : 'DRY-RUN'}
           </span>

@@ -1,10 +1,10 @@
-# Project Lithosphere
+# Project Viking
 
 Option screening, contract optimisation and underlying-price invalidation engine for
 OTM vertical spreads / iron condors, with a React control console.
 
 ```
-backend/lithosphere/   screening.py  optimizer.py  invalidation.py  chaser.py
+backend/viking/   screening.py  optimizer.py  invalidation.py  chaser.py
                        indicators.py tastytrade.py runtime.py server.py sim.py
 backend/tests/         pytest suite (24 tests)
 frontend/              Vite + React + Tailwind v4 + lucide-react (src/App.jsx)
@@ -15,7 +15,7 @@ frontend/              Vite + React + Tailwind v4 + lucide-react (src/App.jsx)
 ```bash
 cd backend && python -m venv ../.venv && . ../.venv/bin/activate && pip install -e '.[dev]'
 pytest                                   # tests
-uvicorn lithosphere.server:app --port 8000
+uvicorn viking.server:app --port 8000
 cd ../frontend && npm install && npm run dev   # http://localhost:5173
 ```
 
@@ -36,7 +36,7 @@ spot to the short strike / below support and force backwardation so each rule ca
 
 Before any live use: wire real data, run on the tastytrade cert sandbox
 (`TT_BASE_URL` defaults to `https://api.cert.tastyworks.com`), and review everything.
-`BrokerConfig` reads `LITHOSPHERE_LIVE`, `TT_CLIENT_SECRET`, `TT_REFRESH_TOKEN`, `TT_ACCOUNT`.
+`BrokerConfig` reads `VIKING_LIVE`, `TT_CLIENT_SECRET`, `TT_REFRESH_TOKEN`, `TT_ACCOUNT`.
 Nothing here is financial advice.
 
 ## Deliberate departures from the spec text
@@ -49,7 +49,7 @@ Nothing here is financial advice.
    resting at the cap and raises an ALERT for manual action. `ChaserConfig.allow_market_fallback`
    restores the spec's behaviour.
 3. **No auto-close by default.** A tripped rule flags the position and the console offers
-   "Close via chaser". `LITHOSPHERE_AUTOCLOSE=1` makes it automatic.
+   "Close via chaser". `VIKING_AUTOCLOSE=1` makes it automatic.
 4. **Spec bug fixed:** `https://tastytrade.com` is not the API host; base URL is configurable.
 5. "0.05c" spread limit is read as **$0.05** per share.
 6. ΔADX < 0 over 3 sessions = ADX fell on each of the last 3 sessions.

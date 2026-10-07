@@ -1,7 +1,7 @@
 [project]
-name = "lithosphere"
+name = "viking"
 version = "0.1.0"
-description = "Project Lithosphere: option screening, optimisation and invalidation engine"
+description = "Project Viking: option screening, optimisation and invalidation engine"
 requires-python = ">=3.11"
 dependencies = ["numpy", "pandas", "httpx", "fastapi", "uvicorn[standard]", "websockets"]
 
@@ -13,7 +13,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["lithosphere"]
+packages = ["viking"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
