@@ -286,3 +286,21 @@ def test_fetch_daily_drops_zero_candles(monkeypatch):
     monkeypatch.setattr(dxlink, "_session", fake)
     df = dxlink.fetch_daily("u", "t", ["SPY"])["SPY"]
     assert len(df) == 2 and (df["low"] > 0).all() and (df["high"] >= df["close"]).all() and (df["low"] <= df["close"]).all()
+
+
+def test_paper_trade_resolution_and_dedupe(tmp_path):
+    import pandas as pd
+    from viking import papertrade as pt
+    row = {"logged": "2026-01-02", "symbol": "XYZ", "kind": "put_spread", "expiry": "2026-01-16", "dte": 14, "spot": 100.0,
+           "width": 5.0, "credit_mid": 1.0, "credit_natural": 0.8, "multiplier": 100.0,
+           "legs": [{"strike": 90.0, "right": "P", "side": "short", "bid": 1.5, "ask": 1.6, "delta": -0.2},
+                    {"strike": 85.0, "right": "P", "side": "long", "bid": 0.4, "ask": 0.5, "delta": -0.1}]}
+    path = str(tmp_path / "log.jsonl")
+    assert pt.append([row], path) == 1 and pt.append([row], path) == 0   # same trade is not logged twice
+    idx = pd.bdate_range("2026-01-05", "2026-01-16")
+    mk = lambda close, low: pd.DataFrame({"open": close, "high": close, "low": low, "close": close, "volume": 1.0}, index=idx)
+    win = pt.resolve([dict(row)], {"XYZ": mk(100.0, 99.0)}, today=pd.Timestamp("2026-02-01").date())
+    assert win.iloc[0]["pnl_credit_mid"] == 1.0 and not win.iloc[0]["touched_short"]
+    loss = pt.resolve([dict(row)], {"XYZ": mk(80.0, 80.0)}, today=pd.Timestamp("2026-02-01").date())
+    assert loss.iloc[0]["pnl_credit_mid"] == 1.0 - 5.0 and loss.iloc[0]["touched_short"]
+    assert pt.resolve([dict(row)], {"XYZ": mk(100.0, 99.0)}, today=pd.Timestamp("2026-01-10").date()).empty  # not expired yet

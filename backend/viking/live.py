@@ -244,7 +244,7 @@ class LiveRuntime:
         else:
             step = 5.0 if spot > 300 else 2.0 if spot > 100 else 1.0
         return {"chain": chain, "put_iv": pick("P", 0.22), "call_iv": pick("C", 0.16),
-                "dte": ex["days-to-expiration"], "atm_iv": min(atm)[1] if atm else None, "step": step}
+                "dte": ex["days-to-expiration"], "expiry": ex["expiration-date"], "atm_iv": min(atm)[1] if atm else None, "step": step}
 
     def _refresh_candidates(self) -> None:
         syms = sorted(set(UNIVERSE))
@@ -257,7 +257,7 @@ class LiveRuntime:
             if sym not in self.bars:
                 continue
             m = mm.get(sym, {})
-            ivr = float(m.get("tw-implied-volatility-index-rank") or 0) * 100
+            ivr = float(m.get("tw-implied-volatility-index-rank") or m.get("tos-implied-volatility-index-rank") or 0) * 100
             iv = float(m.get("implied-volatility-index") or 0) or 1.0
             trend = float(m.get("implied-volatility-index-5-day-change") or 0) / iv / 5
             try:
@@ -291,7 +291,11 @@ class LiveRuntime:
                 "asset": "future" if self._is_future(sym) else "equity", "multiplier": mult,
                 "credit_usd": round(x.credit * mult, 2),
                 "max_risk_usd": round((x.width - x.credit) * mult, 2),
-                "dte": c["dte"], "ivr": round(ivr, 1), "screen_passed": sym in passed,
+                "dte": c["dte"], "expiry": c["expiry"], "spot": round(spot0, 4),
+                "credit_natural": round(sum((q.bid if d < 0 else -q.ask) for q, d in x.legs), 4),
+                "legs": [{"strike": q.strike, "right": q.right, "side": "short" if d < 0 else "long",
+                          "bid": q.bid, "ask": q.ask, "delta": q.delta} for q, d in x.legs],
+                "ivr": round(ivr, 1), "screen_passed": sym in passed,
                 "poc": round(hv["poc"], 2), "congestion": [round(hv["low"], 2), round(hv["high"], 2)],
                 # info only: backtest found no edge from requiring a break at/above the POC
                 "short_outside_congestion": not (hv["low"] <= min(q.strike for q, d in x.legs if d < 0) <= hv["high"])
@@ -350,7 +354,7 @@ class LiveRuntime:
                 unds = sorted({p.symbol for p in pos})
                 if unds:
                     mm = self._get("/market-metrics", symbols=",".join(unds))["items"]
-                    self.ivr = {m["symbol"]: float(m["tw-implied-volatility-index-rank"]) * 100 for m in mm}
+                    self.ivr = {m["symbol"]: float(m.get("tw-implied-volatility-index-rank") or m.get("tos-implied-volatility-index-rank") or 0) * 100 for m in mm}
                 self._refresh_history(unds)
                 self._refresh_deltas()
                 self._evaluate()
