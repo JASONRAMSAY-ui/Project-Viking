@@ -279,7 +279,7 @@ class LiveRuntime:
                 "dte": c["dte"], "ivr": round(ivr, 1), "screen_passed": sym in passed,
                 "poc": round(hv["poc"], 2), "congestion": [round(hv["low"], 2), round(hv["high"], 2)],
                 # info only: backtest found no edge from requiring a break at/above the POC
-                "short_outside_congestion": min(q.strike for q, d in x.legs if d < 0) < hv["low"]
+                "short_outside_congestion": not (hv["low"] <= min(q.strike for q, d in x.legs if d < 0) <= hv["high"])
                                             if x.kind == "put_spread" else None,
                 "trend_break": bool(self.trend.get(sym, {}).get("active")),
                 "days_since_break": self.trend.get(sym, {}).get("days_since_break"),
