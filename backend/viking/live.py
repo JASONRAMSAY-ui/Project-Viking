@@ -18,11 +18,13 @@ from .invalidation import NY, InvalidationEngine, Pivot, Position
 from .optimizer import OptionQuote, rank_setups
 from .config import ScreenConfig
 from .screening import run_screen
+from .trend import downtrend_break
 from .tastytrade import TastytradeBroker
 
 WATCHLIST = [x for x in os.getenv("VIKING_WATCHLIST", "SPY,IWM,XLF,QQQ,TLT,GLD").split(",") if x]
 FUTURES = [x for x in os.getenv("VIKING_FUTURES", "/ES,/NQ,/GC,/CL,/ZN").split(",") if x]
 UNIVERSE = WATCHLIST + FUTURES
+SIDE = os.getenv("VIKING_SIDE", "put")  # phase 1: one-sided put spreads
 HISTORY_TTL = 600.0  # seconds between daily-history refreshes
 
 OCC = re.compile(r"^(?P<u>.{1,6}?)\s*(?P<d>\d{6})(?P<r>[CP])(?P<k>\d{8})$")
@@ -110,6 +112,7 @@ class LiveRuntime:
         self.nm_spread: dict[str, float] = {}
         self._screen = None
         self.cands: dict[str, list] = {}
+        self.trend: dict[str, dict] = {}
         self.fmeta: dict[str, dict] = {}  # futures root -> {"bar": "/ES:XCME", "mult": 50.0}
         self._hist_at = 0.0
         self.hist_error = ""
@@ -181,6 +184,7 @@ class LiveRuntime:
             self.bars = {s: got[w] for s, w in wire.items() if w in got and len(got[w]) >= 120}
             for s in self.bars:
                 self.nm_spread[s] = self._near_money_spread(s)
+            self.trend = {s: downtrend_break(b) for s, b in self.bars.items()}
             self._screen = None
             if self.term and self.bars:
                 uni = {}
@@ -245,6 +249,8 @@ class LiveRuntime:
         syms = sorted(set(UNIVERSE))
         mm = {m["symbol"]: m for m in self._get("/market-metrics", symbols=",".join(syms))["items"]}
         passed = {r.symbol for r in self._screen["results"] if r.passed} if self._screen else set()
+        liquid = {r.symbol for r in self._screen["results"] if r.liquidity} if self._screen else set()
+        halted = bool(self._screen and self._screen["halted"])
         self.cands = {}
         for sym in syms:
             if sym not in self.bars:
@@ -256,7 +262,10 @@ class LiveRuntime:
             try:
                 c = self._live_chain(sym)
                 ranked = rank_setups(c["chain"], c["put_iv"], c["call_iv"], ivr, trend,
-                                     widths=(c["step"], 2 * c["step"]), atm_iv=c["atm_iv"])[:4]
+                                     widths=(c["step"], 2 * c["step"]), atm_iv=c["atm_iv"])
+                if SIDE in ("put", "call"):
+                    ranked = [x for x in ranked if x.kind == f"{SIDE}_spread"]
+                ranked = ranked[:4]
                 mult = self._mult(sym)
             except Exception:
                 continue
@@ -267,6 +276,11 @@ class LiveRuntime:
                 "credit_usd": round(x.credit * mult, 2),
                 "max_risk_usd": round((x.width - x.credit) * mult, 2),
                 "dte": c["dte"], "ivr": round(ivr, 1), "screen_passed": sym in passed,
+                "trend_break": bool(self.trend.get(sym, {}).get("active")),
+                "days_since_break": self.trend.get(sym, {}).get("days_since_break"),
+                # phase 1 signal: downtrend just broke, put spread, liquid, gatekeeper open
+                "signal": bool(SIDE == "put" and x.kind == "put_spread" and self.trend.get(sym, {}).get("active")
+                               and sym in liquid and not halted),
                 "strikes": [f"{'-' if d < 0 else '+'}{q.strike:g}{q.right}" for q, d in x.legs],
                 "components": {k: round(v, 3) for k, v in x.components.items()}} for x in ranked]
 
@@ -405,7 +419,9 @@ class LiveRuntime:
                 "gatekeeper": gk,
                 "watchlist": scr["watchlist"] if scr else [], "screen": screen,
                 "candidates": sorted((c for v in self.cands.values() for c in v),
-                                     key=lambda c: (not c["screen_passed"], -c["osqs"]))[:12],
+                                     key=lambda c: (not c["signal"], not c["screen_passed"], -c["osqs"]))[:12],
+                "phase1_signals": [c for v in self.cands.values() for c in v if c["signal"]],
+                "trend": {k: v for k, v in self.trend.items()},
                 "positions": pos, "log": [],
                 "notes": ["Screens equities/ETFs and futures (set VIKING_WATCHLIST / VIKING_FUTURES). "
                           "Futures use a 24h session clock and contract multipliers. Closing is disabled."]}

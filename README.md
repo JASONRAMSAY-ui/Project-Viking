@@ -34,6 +34,7 @@ spot to the short strike / below support and force backwardation so each rule ca
 | Short-leg delta in the demo | Black-Scholes-style approximation, not streamed Greeks |
 | Live read-only runtime (`live.py`: real positions, Greeks, IV rank, option-chain candidates ranked by OSQS) | Implemented, run against the real account; start with `VIKING_DATA=live`. Closing disabled |
 | Futures (/ES, /NQ, /GC, /CL, /ZN; `VIKING_FUTURES`) | Live read-only: futures-option chains, Greeks, multipliers, 24h session clock for pivot timers. Not traded |
+| Phase 1 signal (`trend.py`): break of an established downtrend -> put spreads only | Backtested on ~10y, fit 2016-22 / test 2023+; call side showed no edge. Price-only, no option P&L yet |
 | Live order guard | `submit` needs `VIKING_LIVE=1` **and** per-order `approve()`; never enabled by default |
 
 Before any live use: wire real data, run on the tastytrade cert sandbox

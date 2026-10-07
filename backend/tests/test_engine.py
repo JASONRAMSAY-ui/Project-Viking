@@ -259,3 +259,18 @@ def test_futures_option_grouping_and_session_clock():
     # the 17:00-18:00 ET daily break and the weekend are excluded
     assert round(futures_minutes_between(datetime(2026, 10, 6, 16, 0, tzinfo=NY), datetime(2026, 10, 6, 19, 0, tzinfo=NY))) == 120
     assert futures_minutes_between(datetime(2026, 10, 9, 18, 0, tzinfo=NY), datetime(2026, 10, 11, 17, 0, tzinfo=NY)) == 0
+
+
+def test_downtrend_break_signal():
+    import numpy as np
+    import pandas as pd
+    from viking.trend import downtrend_break
+    n = 260
+    close = np.r_[np.linspace(200, 100, 200), np.linspace(100, 150, 60)]  # long slide, then a rally through the 50d
+    df = pd.DataFrame({"open": close, "high": close * 1.01, "low": close * 0.99, "close": close, "volume": 1e6},
+                      index=pd.bdate_range(end="2026-10-02", periods=n))
+    fired = [downtrend_break(df.iloc[:i])["active"] for i in range(120, n)]
+    assert any(fired) and not fired[0]
+    assert not downtrend_break(df.iloc[:150])["active"]
+    up = df.assign(close=np.linspace(100, 200, n))
+    assert not any(downtrend_break(up.iloc[:i])["active"] for i in range(120, n, 10))
