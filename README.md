@@ -29,8 +29,8 @@ spot to the short strike / below support and force backwardation so each rule ca
 | Phase 1 filters, gatekeeper, Phase 2 OSQS, Phase 3 rules, chaser | Implemented and unit-tested |
 | Console + REST/WebSocket feed | Implemented, verified in a browser against demo data |
 | `TastytradeBroker` (OAuth2 refresh, orders, replace, dry-run) | Written to the documented API; **never run against tastytrade** |
-| DXLink streaming quotes/Greeks/candles | **Not implemented.** `QuoteSource` in `runtime.py` is the seam |
-| Historical daily bars for screening | Synthetic only; needs a real provider (DXLink candles or other) |
+| DXLink streaming quotes | Not implemented (live mode polls REST; DXLink used only for daily candles and VIX/VIX3M) |
+| Historical daily bars for screening | Live mode uses real DXLink daily candles (`dxlink.py`); demo mode stays synthetic |
 | Short-leg delta in the demo | Black-Scholes-style approximation, not streamed Greeks |
 | Live read-only runtime (`live.py`: real positions, spot, Greeks, IV rank, VIX via REST) | Implemented, run against the real account; start with `VIKING_DATA=live`. Closing disabled |
 | Live order guard | `submit` needs `VIKING_LIVE=1` **and** per-order `approve()`; never enabled by default |

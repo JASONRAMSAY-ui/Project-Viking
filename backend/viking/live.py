@@ -4,15 +4,23 @@ Available over REST: positions, spot, option quotes with Greeks, IV rank, VIX.
 NOT available over REST: daily history (HVN/pivots/ADX) and VIX3M; those need DXLink."""
 from __future__ import annotations
 
+import os
 import re
 import threading
+import time
 from datetime import datetime
 
 import httpx
 
+from . import dxlink
+from . import indicators as ind
 from .config import BrokerConfig
 from .invalidation import NY, InvalidationEngine, Position
+from .screening import run_screen
 from .tastytrade import TastytradeBroker
+
+WATCHLIST = [x for x in os.getenv("VIKING_WATCHLIST", "SPY,IWM,XLF,QQQ,TLT,GLD").split(",") if x]
+HISTORY_TTL = 600.0  # seconds between daily-history refreshes
 
 OCC = re.compile(r"^(?P<u>.{1,6}?)\s*(?P<d>\d{6})(?P<r>[CP])(?P<k>\d{8})$")
 
@@ -69,6 +77,52 @@ class LiveRuntime:
         self.error = ""
         self.clock = datetime.now(NY)
         self._acct = self.cfg.account_number
+        self.bars: dict = {}
+        self.term: tuple[float, float] | None = None
+        self.nm_spread: dict[str, float] = {}
+        self._screen = None
+        self._hist_at = 0.0
+        self.hist_error = ""
+
+    def _refresh_history(self, unds: list[str]) -> None:
+        if time.time() - self._hist_at < HISTORY_TTL:
+            return
+        self._hist_at = time.time()  # also throttles retries after a failure
+        try:
+            tok = self._get("/api-quote-tokens")
+            syms = sorted(set(WATCHLIST) | set(unds))
+            got = dxlink.fetch_daily(tok["dxlink-url"], tok["token"], syms + ["VIX", "VIX3M"], timeout=12)
+            vix, v3 = got.pop("VIX", None), got.pop("VIX3M", None)
+            if vix is not None and v3 is not None and len(vix) and len(v3):
+                self.term = (float(vix["close"].iloc[-1]), float(v3["close"].iloc[-1]))
+            self.bars = {s: df for s, df in got.items() if len(df) >= 120}
+            for s in self.bars:
+                self.nm_spread[s] = self._near_money_spread(s, float(self.bars[s]["close"].iloc[-1]))
+            self._screen = None
+            if self.term and self.bars:
+                uni = {s: (b, [self.nm_spread.get(s, float("inf"))]) for s, b in self.bars.items()
+                       if s in WATCHLIST}
+                self._screen = run_screen(uni, *self.term)
+            for p in self.positions.values():
+                if p.symbol in self.bars:
+                    h = ind.volume_profile_hvn(self.bars[p.symbol], self.engine.cfg.hvn_lookback)
+                    p.hvn_low, p.hvn_high = h["low"], h["high"]
+            self.hist_error = ""
+        except Exception as e:
+            self.hist_error = f"history: {type(e).__name__}: {e}"
+
+    def _near_money_spread(self, sym: str, spot: float) -> float:
+        """Worst bid/ask width ($/share) on near-the-money options ~30-45 DTE (inf if unknown)."""
+        try:
+            exps = self._get(f"/option-chains/{sym}/nested")["items"][0]["expirations"]
+            ex = min((e for e in exps if e["days-to-expiration"] >= 30),
+                     key=lambda e: e["days-to-expiration"])
+            ks = sorted(ex["strikes"], key=lambda k: abs(float(k["strike-price"]) - spot))[:2]
+            syms = [k[r] for k in ks for r in ("call", "put")]
+            q = self._quotes("equity-option", syms)
+            return max(float(v["ask"]) - float(v["bid"]) for v in q.values())
+        except Exception:
+            return float("inf")
 
     def _get(self, path: str, **params):
         r = self.b.http.get(path, headers=self.b._auth(), params=params)
@@ -96,8 +150,9 @@ class LiveRuntime:
                 if unds:
                     mm = self._get("/market-metrics", symbols=",".join(unds))["items"]
                     self.ivr = {m["symbol"]: float(m["tw-implied-volatility-index-rank"]) * 100 for m in mm}
+                self._refresh_history(unds)
                 self._refresh_deltas()
-                self.error = ""
+                self.error = self.hist_error
         except Exception as e:  # keep the console alive; surface the error
             self.error = f"{type(e).__name__}: {e}"
 
@@ -122,13 +177,23 @@ class LiveRuntime:
                 "spot": round(self.spot.get(p.symbol, 0.0), 2),
                 "short_put": p.short_put, "short_call": p.short_call,
                 "put_delta": round(p.short_put_delta, 3), "call_delta": round(p.short_call_delta, 3),
-                "hvn": [0, 0], "pivots": [], "triggers": [], "exit": None,
+                "hvn": [round(p.hvn_low, 2), round(p.hvn_high, 2)], "pivots": [], "triggers": [], "exit": None,
                 "ivr": round(self.ivr.get(p.symbol, 0.0), 1)} for p in self.positions.values()]
+            scr = self._screen
+            gk = ({"front": round(self.term[0], 2), "back": round(self.term[1], 2),
+                   "state": scr["term_structure"].value, "halted": scr["halted"]} if scr else
+                  {"front": self.vix, "back": None, "state": "unavailable", "halted": False})
+            screen = [{"symbol": r.symbol, "passed": r.passed, "liquidity": r.liquidity,
+                       "volatility": r.volatility, "temporal": r.temporal,
+                       "breakout_threat": r.breakout_threat, "reasons": r.reasons[:2],
+                       "bis": r.metrics.get("bis"), "adx": round(r.metrics["adx"], 1),
+                       "hv_ratio": round(r.metrics["hv20"] / r.metrics["hv90"], 2)}
+                      for r in scr["results"]] if scr else []
             return {
                 "mode": self.mode, "live_orders": False, "clock": self.clock.isoformat(),
                 "auto_close": False, "error": self.error,
-                "gatekeeper": {"front": self.vix, "back": None, "state": "unavailable (needs VIX3M via DXLink)",
-                               "halted": False},
-                "watchlist": [], "screen": [], "candidates": [], "positions": pos, "log": [],
-                "notes": ["History-based rules (HVN/pivots/ADX) and the term-structure gatekeeper "
-                          "need the DXLink host, which this environment does not yet allow."]}
+                "gatekeeper": gk,
+                "watchlist": scr["watchlist"] if scr else [], "screen": screen,
+                "candidates": [], "positions": pos, "log": [],
+                "notes": ["Live screen and gatekeeper use real history. Pivot rules and ranked "
+                          "candidates are not wired yet; closing is disabled."]}
