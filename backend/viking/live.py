@@ -12,6 +12,7 @@ from datetime import datetime
 import httpx
 
 from . import dxlink
+from . import containment as ct
 from . import indicators as ind
 from .config import BrokerConfig
 from .invalidation import NY, InvalidationEngine, Pivot, Position
@@ -270,7 +271,21 @@ class LiveRuntime:
                 hv = ind.volume_profile_hvn(self.bars[sym], self.engine.cfg.hvn_lookback)
             except Exception:
                 continue
-            self.cands[sym] = [{
+            sd = float(ct.daily_sigma(self.bars[sym]).iloc[-1])
+            spot0 = float(self.bars[sym]["close"].iloc[-1])
+            h = max(1, round(c["dte"] * 5 / 7))  # trading days to expiry
+
+            def hist(x):
+                shorts = [q.strike for q, d in x.legs if d < 0]
+                side = "down" if x.kind == "put_spread" else "up" if x.kind == "call_spread" else None
+                if side is None or not sd or not shorts:
+                    return {}
+                dist = (1 - min(shorts) / spot0) if side == "down" else (max(shorts) / spot0 - 1)
+                z = dist / (sd * h ** 0.5)
+                n, pc = ct.contained(self.bars[sym], h, z, side)
+                return {"z": round(z, 2), "hist_contained": round(pc, 3), "hist_n": n, "hist_horizon_days": h}
+
+            self.cands[sym] = [{**hist(x),
                 "symbol": sym, "kind": x.kind, "osqs": round(x.osqs, 3), "pop": round(x.pop, 3),
                 "credit": round(x.credit, 2), "width": x.width, "penalised": x.penalised,
                 "asset": "future" if self._is_future(sym) else "equity", "multiplier": mult,
