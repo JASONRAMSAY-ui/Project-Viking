@@ -267,6 +267,7 @@ class LiveRuntime:
                     ranked = [x for x in ranked if x.kind == f"{SIDE}_spread"]
                 ranked = ranked[:4]
                 mult = self._mult(sym)
+                hv = ind.volume_profile_hvn(self.bars[sym], self.engine.cfg.hvn_lookback)
             except Exception:
                 continue
             self.cands[sym] = [{
@@ -276,6 +277,10 @@ class LiveRuntime:
                 "credit_usd": round(x.credit * mult, 2),
                 "max_risk_usd": round((x.width - x.credit) * mult, 2),
                 "dte": c["dte"], "ivr": round(ivr, 1), "screen_passed": sym in passed,
+                "poc": round(hv["poc"], 2), "congestion": [round(hv["low"], 2), round(hv["high"], 2)],
+                # info only: backtest found no edge from requiring a break at/above the POC
+                "short_outside_congestion": min(q.strike for q, d in x.legs if d < 0) < hv["low"]
+                                            if x.kind == "put_spread" else None,
                 "trend_break": bool(self.trend.get(sym, {}).get("active")),
                 "days_since_break": self.trend.get(sym, {}).get("days_since_break"),
                 # phase 1 signal: downtrend just broke, put spread, liquid, gatekeeper open
