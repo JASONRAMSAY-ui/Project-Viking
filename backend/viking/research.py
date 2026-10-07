@@ -45,6 +45,17 @@ def downtrend_break(c, adx, sma_n, adx_min, frac, look, window):
     return (est & (c > sma)).rolling(window, min_periods=1).max().astype(bool)
 
 
+def glitch_mask(df: pd.DataFrame, after: int = 100, before: int = H) -> pd.Series:
+    """True for days contaminated by a split-adjustment glitch (single-day move beyond -38%/+60%): the
+    `before` sessions whose forward window includes it and the `after` sessions whose 90d vol includes it."""
+    r = df["close"].pct_change()
+    bad = ((r < -0.38) | (r > 0.60)).to_numpy()
+    out = np.zeros(len(df), dtype=bool)
+    for i in np.flatnonzero(bad):
+        out[max(0, i - before): i + after + 1] = True
+    return pd.Series(out, index=df.index)
+
+
 def outcomes(df: pd.DataFrame, iv_mult: float = 1.15, iv_w: float = 0.0) -> pd.DataFrame:
     """iv_w: weight of 20d realised vol in the implied vol used to price the credit (0 = anchored to 90d vol)."""
     c, lo = df["close"], df["low"]
@@ -131,6 +142,7 @@ def build(bars: dict, groups: dict, iv_mult: float = 1.15, iv_w: float = 0.0) ->
         x = pd.concat([o, f], axis=1)
         x["sym"], x["group"] = s, groups.get(s, "stock")
         x["date"] = df.index
+        x = x[~glitch_mask(df).to_numpy()]
         parts.append(x[x["valid"] & x["touch84"].notna()])
     return pd.concat(parts, ignore_index=True)
 
