@@ -9,6 +9,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from .live import LiveRuntime
 from .runtime import DemoRuntime
 
 
@@ -22,7 +23,9 @@ class Term(BaseModel):
     back: float
 
 
-def create_app(runtime: DemoRuntime | None = None, tick_seconds: float = 1.0) -> FastAPI:
+def create_app(runtime: "DemoRuntime | LiveRuntime | None" = None, tick_seconds: float = 1.0) -> FastAPI:
+    if runtime is None and os.getenv("VIKING_DATA") == "live":
+        runtime = LiveRuntime()  # read-only; never places orders
     rt = runtime or DemoRuntime(auto_close=os.getenv("VIKING_AUTOCLOSE") == "1")
 
     @asynccontextmanager

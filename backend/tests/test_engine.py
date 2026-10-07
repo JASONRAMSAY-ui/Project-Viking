@@ -201,3 +201,12 @@ def test_live_submit_is_blocked_without_flag_and_approval():
     with pytest.raises(LiveOrderBlocked):
         b.replace("7", order)
     assert calls == []                        # nothing hit the network
+
+
+def test_group_positions_condor():
+    from viking.live import group_positions, parse_option
+    assert parse_option("SPY   261009P00756000") == ("SPY", "261009", "P", 756.0)
+    it = lambda s, q, d: {"instrument-type": "Equity Option", "symbol": s, "quantity": q, "quantity-direction": d}
+    ps = group_positions([it("SPY   261009P00700000", "1", "Long"), it("SPY   261009P00710000", "1", "Short"),
+                          it("SPY   261009C00800000", "1", "Short"), it("SPY   261009C00810000", "1", "Long")])
+    assert len(ps) == 1 and ps[0].kind == "iron_condor" and (ps[0].short_put, ps[0].short_call) == (710, 800)

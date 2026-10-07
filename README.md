@@ -32,7 +32,8 @@ spot to the short strike / below support and force backwardation so each rule ca
 | DXLink streaming quotes/Greeks/candles | **Not implemented.** `QuoteSource` in `runtime.py` is the seam |
 | Historical daily bars for screening | Synthetic only; needs a real provider (DXLink candles or other) |
 | Short-leg delta in the demo | Black-Scholes-style approximation, not streamed Greeks |
-| Live runtime wiring (broker + real data into `runtime.py`) | Not done; the server only runs `DemoRuntime` |
+| Live read-only runtime (`live.py`: real positions, spot, Greeks, IV rank, VIX via REST) | Implemented, run against the real account; start with `VIKING_DATA=live`. Closing disabled |
+| Live order guard | `submit` needs `VIKING_LIVE=1` **and** per-order `approve()`; never enabled by default |
 
 Before any live use: wire real data, run on the tastytrade cert sandbox
 (`TT_BASE_URL` defaults to `https://api.cert.tastyworks.com`), and review everything.
