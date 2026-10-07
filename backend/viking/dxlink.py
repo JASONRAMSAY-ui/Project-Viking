@@ -69,7 +69,13 @@ def fetch_daily(url: str, token: str, symbols: list[str], days: int = 400, timeo
     for s, rows in by.items():
         df = pd.DataFrame(rows).drop_duplicates("time", keep="last").sort_values("time")
         df.index = pd.to_datetime(df["time"], unit="ms")
-        res[s] = df[["open", "high", "low", "close", "volume"]].astype(float).fillna(0.0)
+        d = df[["open", "high", "low", "close", "volume"]].apply(pd.to_numeric, errors="coerce")
+        # Drop bad candles (NaN or non-positive prices, e.g. market-closed days that print zeros) instead
+        # of zero-filling them: a zero low would register as a touch of every strike.
+        d = d[(d[["open", "high", "low", "close"]] > 0).all(axis=1)]
+        d["high"] = d[["open", "high", "low", "close"]].max(axis=1)
+        d["low"] = d[["open", "high", "low", "close"]].min(axis=1)
+        res[s] = d.fillna({"volume": 0.0})
     return res
 
 

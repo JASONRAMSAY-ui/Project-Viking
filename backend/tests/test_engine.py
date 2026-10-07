@@ -274,3 +274,15 @@ def test_downtrend_break_signal():
     assert not downtrend_break(df.iloc[:150])["active"]
     up = df.assign(close=np.linspace(100, 200, n))
     assert not any(downtrend_break(up.iloc[:i])["active"] for i in range(120, n, 10))
+
+
+def test_fetch_daily_drops_zero_candles(monkeypatch):
+    from viking import dxlink
+
+    rows = [{"eventSymbol": "SPY{=d}", "time": t, "open": o, "high": h, "low": l, "close": c, "volume": 1}
+            for t, o, h, l, c in [(1, 10, 11, 9, 10), (2, 0, 0, 0, 0), (3, 10, 10, 11, 12)]]  # zero bar, inverted bar
+    async def fake(*a, **k):
+        return {"Candle": rows}
+    monkeypatch.setattr(dxlink, "_session", fake)
+    df = dxlink.fetch_daily("u", "t", ["SPY"])["SPY"]
+    assert len(df) == 2 and (df["low"] > 0).all() and (df["high"] >= df["close"]).all() and (df["low"] <= df["close"]).all()
