@@ -172,3 +172,32 @@ def test_chaser_chases_a_running_market():
     r = execute_chaser_exit(SimBroker(9.99), LEGS, lambda: {"mid": next(mids), "natural": 1.40},
                             fast, sleep=lambda s: None)
     assert max(s["price"] for s in r.steps) <= 1.10  # cap is anchored to the starting mid
+
+
+def test_live_submit_is_blocked_without_flag_and_approval():
+    import httpx
+    import pytest
+    from viking.config import BrokerConfig
+    from viking.tastytrade import LiveOrderBlocked, TastytradeBroker
+
+    calls = []
+
+    def handler(req):
+        calls.append(req)
+        return httpx.Response(200, json={"data": {"order": {"id": 7}}})
+
+    order = {"order-type": "Limit", "time-in-force": "Day", "price": 1.0,
+             "legs": [{"symbol": "SPY X", "action": "Sell to Open", "quantity": 1}]}
+    mk = lambda live: TastytradeBroker(
+        BrokerConfig(live_orders=live, client_secret="s", refresh_token="r", account_number="A"),
+        httpx.Client(base_url="http://x", transport=httpx.MockTransport(handler)))
+    b = mk(False)
+    b.approve(order)
+    with pytest.raises(LiveOrderBlocked):
+        b.submit(order)                       # flag off, even if approved
+    b = mk(True)
+    with pytest.raises(LiveOrderBlocked):
+        b.submit(order)                       # flag on, not approved
+    with pytest.raises(LiveOrderBlocked):
+        b.replace("7", order)
+    assert calls == []                        # nothing hit the network

@@ -15,6 +15,16 @@ import httpx
 from .config import BrokerConfig
 
 
+class LiveOrderBlocked(RuntimeError):
+    """Raised when a real order is attempted without VIKING_LIVE=1 and explicit approval."""
+
+
+def order_fingerprint(order: dict) -> str:
+    """Identity of an order ignoring price, so a chase (price replace) stays within one approval."""
+    legs = sorted((l.get("symbol"), l.get("action"), l.get("quantity")) for l in order.get("legs", []))
+    return repr((order.get("order-type"), order.get("time-in-force"), order.get("price-effect"), legs))
+
+
 class TastytradeBroker:
     def __init__(self, cfg: BrokerConfig, client: httpx.Client | None = None):
         if not (cfg.client_secret and cfg.refresh_token and cfg.account_number):
@@ -23,6 +33,12 @@ class TastytradeBroker:
         self.http = client or httpx.Client(base_url=cfg.base_url, timeout=10.0,
                                            headers={"User-Agent": "viking/0.1"})
         self._token, self._expires = "", 0.0
+        self._approved: set[str] = set()   # fingerprints the user approved, one-shot
+        self._live_ids: set[str] = set()   # order ids this broker submitted under approval
+
+    def approve(self, order: dict) -> None:
+        """Record explicit user approval for exactly this order (one submission)."""
+        self._approved.add(order_fingerprint(order))
 
     def _auth(self) -> dict:
         if time.time() > self._expires - 60:
@@ -44,12 +60,22 @@ class TastytradeBroker:
         return r.json()["data"]
 
     def submit(self, order: dict) -> str:
+        fp = order_fingerprint(order)
+        if not self.cfg.live_orders:
+            raise LiveOrderBlocked("live orders disabled (VIKING_LIVE != 1); use dry_run()")
+        if fp not in self._approved:
+            raise LiveOrderBlocked("order has not been explicitly approved by the user")
+        self._approved.discard(fp)
         r = self.http.post(self._path(), json=order, headers=self._auth())
         r.raise_for_status()
         data = r.json()["data"]
-        return str(data.get("order", data)["id"])
+        oid = str(data.get("order", data)["id"])
+        self._live_ids.add(oid)
+        return oid
 
     def replace(self, order_id: str, order: dict) -> None:
+        if not self.cfg.live_orders or order_id not in self._live_ids:
+            raise LiveOrderBlocked("can only replace an order submitted under approval in this session")
         self.http.put(self._path(f"/{order_id}"), json=order, headers=self._auth()).raise_for_status()
 
     def status(self, order_id: str) -> str:

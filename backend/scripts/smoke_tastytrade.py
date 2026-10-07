@@ -24,7 +24,8 @@ b.http = httpx.Client(base_url=cfg.base_url, timeout=10.0, headers={"User-Agent"
 
 def get(path, **params):
     r = b.http.get(path, headers=b._auth(), params=params)
-    print(f"GET {path} -> {r.status_code}")
+    import re
+    print(f"GET {re.sub(r'/accounts/([A-Z0-9]{2})[A-Z0-9]+([A-Z0-9]{2})', r'/accounts/\\1***\\2', path)} -> {r.status_code}")
     r.raise_for_status()
     return r.json()["data"]
 
