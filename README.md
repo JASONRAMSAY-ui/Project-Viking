@@ -33,6 +33,7 @@ spot to the short strike / below support and force backwardation so each rule ca
 | Historical daily bars for screening | Live mode uses real DXLink daily candles (`dxlink.py`); demo mode stays synthetic |
 | Short-leg delta in the demo | Black-Scholes-style approximation, not streamed Greeks |
 | Live read-only runtime (`live.py`: real positions, Greeks, IV rank, option-chain candidates ranked by OSQS) | Implemented, run against the real account; start with `VIKING_DATA=live`. Closing disabled |
+| Futures (/ES, /NQ, /GC, /CL, /ZN; `VIKING_FUTURES`) | Live read-only: futures-option chains, Greeks, multipliers, 24h session clock for pivot timers. Not traded |
 | Live order guard | `submit` needs `VIKING_LIVE=1` **and** per-order `approve()`; never enabled by default |
 
 Before any live use: wire real data, run on the tastytrade cert sandbox

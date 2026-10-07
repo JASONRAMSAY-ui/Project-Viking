@@ -206,7 +206,7 @@ function Candidates({ rows }) {
           <tr key={i} className="border-t border-zinc-800/70">
             <td className="px-3 py-1 text-zinc-200">{c.symbol} {c.kind.replace('_', ' ')} <span className="text-zinc-500">w{c.width}</span></td>
             <td className="font-mono text-zinc-400">{c.strikes.join(' ')}</td>
-            <td className="tabular-nums text-zinc-300">{c.credit.toFixed(2)}</td>
+            <td className="tabular-nums text-zinc-300">{c.credit.toFixed(2)}{c.credit_usd != null && <span className="text-zinc-500"> (${c.credit_usd.toFixed(0)}, risk ${c.max_risk_usd.toFixed(0)})</span>}</td>
             <td className="tabular-nums text-zinc-300">{(c.pop * 100).toFixed(0)}%</td>
             <td className="pr-3">
               <div className="flex items-center gap-2">

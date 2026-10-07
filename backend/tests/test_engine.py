@@ -242,3 +242,20 @@ def test_live_pivots_and_evaluate():
     assert {v.name for v in pv} == {"Anchored VWAP", "S1 pivot", "R1 pivot"}
     assert next(v for v in pv if v.name == "R1 pivot").level == 102.0  # 2*pp - low, pp=100
     assert next(v for v in pv if v.name == "S1 pivot").level == 98.0
+
+
+def test_futures_option_grouping_and_session_clock():
+    from datetime import datetime
+    from viking.invalidation import NY, futures_minutes_between, market_minutes_between
+    from viking.live import group_positions, parse_future_option
+    assert parse_future_option("./ESZ6 E1BV6 261006P6610") == ("/ES", "/ESZ6", "261006", "P", 6610.0)
+    it = lambda s, q, d: {"instrument-type": "Future Option", "symbol": s, "quantity": q, "quantity-direction": d}
+    ps = group_positions([it("./ESZ6 E1BV6 261120P6000", "1", "Short"), it("./ESZ6 E1BV6 261120P5950", "1", "Long")])
+    assert len(ps) == 1 and ps[0].futures and ps[0].symbol == "/ES" and ps[0].quote_symbol == "/ESZ6"
+    assert ps[0].short_put == 6000 and ps[0].kind == "put_spread"
+    # Tue 20:00 -> Wed 02:00 ET: futures trade 6h, equities 0
+    a, b = datetime(2026, 10, 6, 20, 0, tzinfo=NY), datetime(2026, 10, 7, 2, 0, tzinfo=NY)
+    assert round(futures_minutes_between(a, b)) == 360 and market_minutes_between(a, b) == 0
+    # the 17:00-18:00 ET daily break and the weekend are excluded
+    assert round(futures_minutes_between(datetime(2026, 10, 6, 16, 0, tzinfo=NY), datetime(2026, 10, 6, 19, 0, tzinfo=NY))) == 120
+    assert futures_minutes_between(datetime(2026, 10, 9, 18, 0, tzinfo=NY), datetime(2026, 10, 11, 17, 0, tzinfo=NY)) == 0

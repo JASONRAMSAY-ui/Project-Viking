@@ -28,6 +28,31 @@ def market_minutes_between(start: datetime, end: datetime) -> float:
     return total
 
 
+def futures_minutes_between(start: datetime, end: datetime) -> float:
+    """Minutes the CME Globex session is open between two instants: Sun 18:00 to Fri 17:00 ET,
+    closed daily 17:00-18:00 ET. Exchange holidays are not modelled."""
+    start, end = start.astimezone(NY), end.astimezone(NY)
+    if end <= start:
+        return 0.0
+    total, day = 0.0, start.date()
+    while day <= end.date():
+        wd = day.weekday()  # Mon=0 .. Sun=6
+        spans = []
+        if wd <= 3:
+            spans = [(time(0), time(17)), (time(18), time(23, 59, 59, 999999))]
+        elif wd == 4:
+            spans = [(time(0), time(17))]
+        elif wd == 6:
+            spans = [(time(18), time(23, 59, 59, 999999))]
+        for a, b in spans:
+            s = max(start, datetime.combine(day, a, NY))
+            e = min(end, datetime.combine(day, b, NY))
+            if e > s:
+                total += (e - s).total_seconds() / 60
+        day += timedelta(days=1)
+    return total
+
+
 @dataclass
 class Pivot:
     name: str
@@ -51,6 +76,10 @@ class Position:
     pivots: list[Pivot] = field(default_factory=list)
     short_put_delta: float = 0.0
     short_call_delta: float = 0.0
+    futures: bool = False          # futures option: 24h session clock, multiplier-sized
+    quote_symbol: str = ""         # symbol to quote for spot (e.g. /ESZ6); defaults to `symbol`
+    multiplier: float = 1.0        # dollars per point of the underlying
+    leg_symbols: dict = field(default_factory=dict)  # {("P", strike): option symbol}
 
 
 @dataclass
@@ -66,9 +95,11 @@ class InvalidationEngine:
         self.cfg = cfg
         self._breach_since: dict[tuple[str, str], datetime] = {}
 
-    def breach_minutes(self, pos_id: str, pivot: Pivot, now: datetime) -> float:
+    def breach_minutes(self, pos_id: str, pivot: Pivot, now: datetime, futures: bool = False) -> float:
         since = self._breach_since.get((pos_id, pivot.name))
-        return market_minutes_between(since, now) if since else 0.0
+        if not since:
+            return 0.0
+        return (futures_minutes_between if futures else market_minutes_between)(since, now)
 
     def on_tick(self, pos: Position, price: float, now: datetime) -> list[Trigger]:
         """Evaluate delta stop and pivot-breach timers on every spot update."""
@@ -83,7 +114,7 @@ class InvalidationEngine:
                 self._breach_since.pop(key, None)  # any recovery resets the clock
                 continue
             self._breach_since.setdefault(key, now)
-            mins = self.breach_minutes(pos.id, pv, now)
+            mins = self.breach_minutes(pos.id, pv, now, pos.futures)
             if mins > self.cfg.pivot_breach_minutes:
                 out.append(Trigger("pivot_breach",
                                    f"{pv.name} {pv.level:.2f} breached {mins:.0f} market min"))
